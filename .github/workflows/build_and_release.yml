@@ -129,7 +129,6 @@ jobs:
           if (-not (Test-Path $pyWinDir)) {
               New-Item -ItemType Directory -Force -Path $pyWinDir
               $pyUrl = "https://www.python.org/ftp/python/3.10.11/python-3.10.11-embed-amd64.zip"
-              Write-Host "Downloading embeddable Python for Windows..."
               Invoke-WebRequest -Uri $pyUrl -OutFile "python-win.zip"
               Expand-Archive -Path "python-win.zip" -DestinationPath $pyWinDir -Force
 
@@ -147,15 +146,6 @@ jobs:
                   Copy-Item -Path "$p/espeak-ng-data/*" -Destination "$pyWinDir" -Recurse -Force
               }
           }
-
-          # 3. VERIFY
-          Write-Host "=========================================="
-          Write-Host "VERIFYING TAURI SIDECARS & RESOURCES"
-          Write-Host "=========================================="
-          $speechTarget = "$binDir/speech_engine-x86_64-pc-windows-msvc.exe"
-          if (-not (Test-Path $speechTarget)) { throw "Missing Tauri Speech sidecar: $speechTarget" }
-          Write-Host "OK: speech_engine sidecar exists"
-          Get-ChildItem -Path $binDir | Format-Table Name, Length
 
       - name: Prepare Tauri signing key
         shell: bash
@@ -179,9 +169,9 @@ jobs:
           repo: roundstep-releases
           releaseCommitish: main
           projectPath: ./${{ matrix.project_path }}
-          tagName: v${{ github.event.inputs.version || '1.0.0' }}
-          releaseName: 'Roundstep Desktop v${{ github.event.inputs.version || '1.0.0' }}'
-          releaseBody: 'Roundstep Desktop official release with automated updater support.'
+          tagName: "v${{ github.event.inputs.version || '1.0.0' }}"
+          releaseName: "Roundstep Desktop v${{ github.event.inputs.version || '1.0.0' }}"
+          releaseBody: "Roundstep Desktop official release with automated updater support."
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
