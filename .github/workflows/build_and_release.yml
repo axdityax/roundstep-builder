@@ -1,0 +1,187 @@
+name: Build and Release Desktop App
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release Version (e.g. 1.0.1)'
+        required: true
+        default: '1.0.1'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    env:
+      VITE_API_URL: https://api.roundstep.com
+      VITE_RAZORPAY_KEY_ID: rzp_test_Tjp5w442b9A3IY
+      VITE_FIREBASE_API_KEY: AIzaSyDFpx_eEVlvVfc175GC0cspokaQZABrzm8
+      VITE_FIREBASE_AUTH_DOMAIN: roundstep-b22c3.firebaseapp.com
+      VITE_FIREBASE_PROJECT_ID: roundstep-b22c3
+      VITE_FIREBASE_STORAGE_BUCKET: roundstep-b22c3.firebasestorage.app
+      VITE_FIREBASE_MESSAGING_SENDER_ID: 679163084023
+      VITE_FIREBASE_APP_ID: 1:679163084023:web:f5f1526a396c258d94e7f2
+      VITE_GA_MEASUREMENT_ID: G-VCL345DK0L
+      VITE_FIREBASE_OAUTH_CLIENT_ID: 521672628030-salvmpnvp31kd2g9rtak34tua1gr1vg5.apps.googleusercontent.com
+      ROUNDSTEP_MODEL_SECRET: ${{ secrets.ROUNDSTEP_MODEL_SECRET || '' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+            project_path: 'client-desktop-mac'
+          - platform: 'windows-latest'
+            args: ''
+            project_path: 'client-desktop-windows'
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout private repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'axdityax/roundstep-desktop'
+          token: ${{ secrets.PUBLIC_RELEASE_PAT }}
+          lfs: true
+
+      - name: Update version numbers in source
+        shell: bash
+        run: |
+          TARGET_VER="${{ github.event.inputs.version || '1.0.0' }}"
+          echo "Updating version to $TARGET_VER in ${{ matrix.project_path }}..."
+          node -e "
+            const fs = require('fs');
+            const pkgPath = '${{ matrix.project_path }}/package.json';
+            const tauriPath = '${{ matrix.project_path }}/src-tauri/tauri.conf.json';
+            
+            if (fs.existsSync(pkgPath)) {
+              const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+              pkg.version = '$TARGET_VER';
+              fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+            }
+            if (fs.existsSync(tauriPath)) {
+              const tauri = JSON.parse(fs.readFileSync(tauriPath, 'utf8'));
+              tauri.version = '$TARGET_VER';
+              fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
+            }
+          "
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.project_path }}/package-lock.json
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+
+      - name: Setup Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.project_path }}/src-tauri
+
+      - name: Install Node dependencies
+        working-directory: ./${{ matrix.project_path }}
+        run: npm ci
+
+      - name: Prepare macOS portable environment
+        if: matrix.platform == 'macos-latest'
+        run: |
+          chmod +x client-desktop-mac/src-tauri/setup_portable_envs.sh
+          cd client-desktop-mac/src-tauri && ./setup_portable_envs.sh
+
+      - name: Prepare Windows sidecars
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $binDir = "client-desktop-windows/src-tauri/bin"
+          New-Item -ItemType Directory -Force -Path $binDir
+
+          # 1. SPEECH ENGINE (STATIC) - Windows x64
+          Write-Host "Building speech_engine for Windows x64..."
+          $tmpDir = Join-Path $env:TEMP "whisper-src"
+          if (Test-Path $tmpDir) { Remove-Item -Recurse -Force $tmpDir }
+          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git $tmpDir
+          cmake -B "$tmpDir/build" -S "$tmpDir" -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON
+          cmake --build "$tmpDir/build" --config Release -j 4
+
+          $speechExe = Get-ChildItem -Path "$tmpDir/build" -Filter "whisper-cli.exe" -Recurse | Select-Object -First 1
+          if (-not $speechExe) {
+              $speechExe = Get-ChildItem -Path "$tmpDir/build" -Filter "main.exe" -Recurse | Select-Object -First 1
+          }
+          if (-not $speechExe) {
+              throw "Failed to find built speech_engine executable"
+          }
+          Write-Host "Found built speech executable at: $($speechExe.FullName)"
+          Copy-Item -Path $speechExe.FullName -Destination "$binDir/speech_engine-x86_64-pc-windows-msvc.exe" -Force
+          Remove-Item -Recurse -Force $tmpDir
+
+          # 2. PYTHON PORTABLE - Windows x64 (Internal Voice Worker)
+          $resDir = "client-desktop-windows/src-tauri/resources"
+          $pyWinDir = "$resDir/python-windows"
+          if (-not (Test-Path $pyWinDir)) {
+              New-Item -ItemType Directory -Force -Path $pyWinDir
+              $pyUrl = "https://www.python.org/ftp/python/3.10.11/python-3.10.11-embed-amd64.zip"
+              Write-Host "Downloading embeddable Python for Windows..."
+              Invoke-WebRequest -Uri $pyUrl -OutFile "python-win.zip"
+              Expand-Archive -Path "python-win.zip" -DestinationPath $pyWinDir -Force
+
+              $pthFile = "$pyWinDir/python310._pth"
+              if (Test-Path $pthFile) {
+                  (Get-Content $pthFile) -replace '#import site', 'import site' | Set-Content $pthFile
+              }
+
+              Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile "$pyWinDir/get-pip.py"
+              & "$pyWinDir/python.exe" "$pyWinDir/get-pip.py"
+              & "$pyWinDir/python.exe" -m pip install piper-tts
+              $p = & "$pyWinDir/python.exe" -c "import piper, os; print(os.path.dirname(piper.__file__))"
+              if (Test-Path "$p/espeak-ng-data") {
+                  Copy-Item -Path "$p/espeak-ng-data/*" -Destination "$pyWinDir/Lib" -Recurse -Force
+                  Copy-Item -Path "$p/espeak-ng-data/*" -Destination "$pyWinDir" -Recurse -Force
+              }
+          }
+
+          # 3. VERIFY
+          Write-Host "=========================================="
+          Write-Host "VERIFYING TAURI SIDECARS & RESOURCES"
+          Write-Host "=========================================="
+          $speechTarget = "$binDir/speech_engine-x86_64-pc-windows-msvc.exe"
+          if (-not (Test-Path $speechTarget)) { throw "Missing Tauri Speech sidecar: $speechTarget" }
+          Write-Host "OK: speech_engine sidecar exists"
+          Get-ChildItem -Path $binDir | Format-Table Name, Length
+
+      - name: Prepare Tauri signing key
+        shell: bash
+        run: |
+          RAW_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+          CLEAN_KEY=$(printf '%s' "$RAW_KEY" | tr -d '\r\n[:space:]')
+          echo "TAURI_SIGNING_PRIVATE_KEY=$CLEAN_KEY" >> $GITHUB_ENV
+          KEY_FILE="${RUNNER_TEMP}/roundstep_updater.key"
+          printf '%s' "$CLEAN_KEY" > "$KEY_FILE"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=$KEY_FILE" >> $GITHUB_ENV
+
+      - name: Build and publish Tauri release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.PUBLIC_RELEASE_PAT }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PATH }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          owner: axdityax
+          repo: roundstep-releases
+          releaseCommitish: main
+          projectPath: ./${{ matrix.project_path }}
+          tagName: v${{ github.event.inputs.version || '1.0.0' }}
+          releaseName: 'Roundstep Desktop v${{ github.event.inputs.version || '1.0.0' }}'
+          releaseBody: 'Roundstep Desktop official release with automated updater support.'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
