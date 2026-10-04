@@ -105,55 +105,28 @@ jobs:
           New-Item -ItemType Directory -Force -Path $binDir
 
           # ============================================================
-          # 1. WHISPER.CPP - Windows x64
+          # 1. SPEECH ENGINE (STATIC - ZERO DLLs) - Windows x64
           # ============================================================
-          $whisperUrl = "https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-bin-x64.zip"
-          Write-Host "Downloading whisper.cpp from $whisperUrl..."
-          Invoke-WebRequest -Uri $whisperUrl -OutFile "whisper-win.zip"
-          Expand-Archive -Path "whisper-win.zip" -DestinationPath "whisper-extracted" -Force
+          Write-Host "Building static speech_engine for Windows x64..."
+          $tmpDir = Join-Path $env:TEMP "whisper-src"
+          if (Test-Path $tmpDir) { Remove-Item -Recurse -Force $tmpDir }
+          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git $tmpDir
+          cmake -B "$tmpDir/build" -S "$tmpDir" -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON
+          cmake --build "$tmpDir/build" --config Release -j 4
 
-          $whisperExe = Get-ChildItem -Path "whisper-extracted" -Filter "whisper-cli.exe" -Recurse | Select-Object -First 1
-          if (-not $whisperExe) {
-              $whisperExe = Get-ChildItem -Path "whisper-extracted" -Filter "main.exe" -Recurse | Select-Object -First 1
+          $speechExe = Get-ChildItem -Path "$tmpDir/build" -Filter "whisper-cli.exe" -Recurse | Select-Object -First 1
+          if (-not $speechExe) {
+              $speechExe = Get-ChildItem -Path "$tmpDir/build" -Filter "main.exe" -Recurse | Select-Object -First 1
           }
-          if (-not $whisperExe) {
-              throw "whisper-cli.exe was not found in whisper.cpp archive"
+          if (-not $speechExe) {
+              throw "Failed to find built speech_engine executable"
           }
-          Write-Host "Found whisper executable at: $($whisperExe.FullName)"
-          Copy-Item -Path $whisperExe.FullName -Destination "$binDir/speech_engine-x86_64-pc-windows-msvc.exe" -Force
-
-          # Copy Whisper runtime DLLs beside the executable
-          Get-ChildItem -Path $whisperExe.Directory.FullName -Filter "*.dll" | ForEach-Object {
-              Write-Host "Copying Whisper DLL: $($_.Name)"
-              Copy-Item $_.FullName -Destination $binDir -Force
-          }
+          Write-Host "Found built static speech executable at: $($speechExe.FullName)"
+          Copy-Item -Path $speechExe.FullName -Destination "$binDir/speech_engine-x86_64-pc-windows-msvc.exe" -Force
+          Remove-Item -Recurse -Force $tmpDir
 
           # ============================================================
-          # 2. PIPER - Windows x64
-          # ============================================================
-          $piperUrl = "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip"
-          Write-Host "Downloading Piper from $piperUrl..."
-          Invoke-WebRequest -Uri $piperUrl -OutFile "piper-win.zip"
-          Expand-Archive -Path "piper-win.zip" -DestinationPath "piper-extracted" -Force
-
-          $piperExe = Get-ChildItem -Path "piper-extracted" -Filter "piper.exe" -Recurse | Select-Object -First 1
-          if (-not $piperExe) {
-              throw "piper.exe was not found in Piper archive"
-          }
-          Write-Host "Found piper.exe at: $($piperExe.FullName)"
-          Copy-Item -Path $piperExe.FullName -Destination "$binDir/voice_engine-x86_64-pc-windows-msvc.exe" -Force
-
-          # Copy Piper runtime DLLs and espeak-ng-data beside piper.exe
-          Get-ChildItem -Path $piperExe.Directory.FullName -Filter "*.dll" | ForEach-Object {
-              Write-Host "Copying Piper DLL: $($_.Name)"
-              Copy-Item $_.FullName -Destination $binDir -Force
-          }
-          if (Test-Path "$($piperExe.Directory.FullName)/espeak-ng-data") {
-              Copy-Item "$($piperExe.Directory.FullName)/espeak-ng-data" -Destination $binDir -Recurse -Force
-          }
-
-          # ============================================================
-          # 3. PYTHON PORTABLE - Windows x64
+          # 2. PYTHON PORTABLE (Encapsulated Voice Worker) - Windows x64
           # ============================================================
           $resDir = "client-desktop-windows/src-tauri/resources"
           $pyWinDir = "$resDir/python-windows"
@@ -175,17 +148,14 @@ jobs:
           }
 
           # ============================================================
-          # 4. VERIFY
+          # 3. VERIFY
           # ============================================================
           Write-Host "=========================================="
           Write-Host "VERIFYING TAURI SIDECARS & RESOURCES"
           Write-Host "=========================================="
           $speechTarget = "$binDir/speech_engine-x86_64-pc-windows-msvc.exe"
-          $voiceTarget = "$binDir/voice_engine-x86_64-pc-windows-msvc.exe"
           if (-not (Test-Path $speechTarget)) { throw "Missing Tauri Speech sidecar: $speechTarget" }
-          if (-not (Test-Path $voiceTarget)) { throw "Missing Tauri Voice sidecar: $voiceTarget" }
           Write-Host "OK: speech_engine sidecar exists"
-          Write-Host "OK: voice_engine sidecar exists"
           Get-ChildItem -Path $binDir | Format-Table Name, Length
 
       - name: Prepare Tauri signing key
