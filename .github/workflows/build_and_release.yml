@@ -111,7 +111,7 @@ jobs:
           $tmpDir = Join-Path $env:TEMP "whisper-src"
           if (Test-Path $tmpDir) { Remove-Item -Recurse -Force $tmpDir }
           git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git $tmpDir
-          cmake -B "$tmpDir/build" -S "$tmpDir" -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON
+          cmake -B "$tmpDir/build" -S "$tmpDir" -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DGGML_NATIVE=OFF -DWHISPER_NATIVE=OFF -DGGML_AVX512=OFF -DWHISPER_AVX512=OFF -DGGML_AVX2=OFF -DWHISPER_AVX2=OFF -DGGML_AVX=ON -DWHISPER_AVX=ON
           cmake --build "$tmpDir/build" --config Release -j 4
 
           $speechExe = Get-ChildItem -Path "$tmpDir/build" -Filter "whisper-cli.exe" -Recurse | Select-Object -First 1
