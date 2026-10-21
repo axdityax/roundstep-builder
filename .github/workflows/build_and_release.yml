@@ -158,6 +158,27 @@ jobs:
           Write-Host "OK: speech_engine sidecar exists"
           Get-ChildItem -Path $binDir | Format-Table Name, Length
 
+      - name: Import Apple Certificate
+        if: matrix.platform == 'macos-latest'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Deep sign nested Python libraries and sidecars
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          IDENTITY="${{ secrets.APPLE_SIGNING_IDENTITY }}"
+          echo "Signing all embedded .so, .dylib, and binaries with: $IDENTITY"
+          find client-desktop-mac/src-tauri/resources/python-macos -type f \( -name "*.so" -o -name "*.dylib" -o -name "python3*" \) | while read -r file; do
+            codesign --force --timestamp --options runtime --sign "$IDENTITY" "$file" 2>&1 || true
+          done
+          if [ -f "client-desktop-mac/src-tauri/bin/speech_engine-aarch64-apple-darwin" ]; then
+            codesign --force --timestamp --options runtime --sign "$IDENTITY" "client-desktop-mac/src-tauri/bin/speech_engine-aarch64-apple-darwin" 2>&1 || true
+          fi
+          echo "OK: All embedded binaries and libraries signed."
+
       - name: Prepare Tauri signing key
         shell: bash
         run: |
