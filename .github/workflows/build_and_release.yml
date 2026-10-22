@@ -112,22 +112,11 @@ jobs:
           fi
           echo "OK: All embedded binaries and libraries signed."
 
-      - name: Prepare Tauri signing key
-        shell: bash
-        run: |
-          RAW_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
-          CLEAN_KEY=$(printf '%s' "$RAW_KEY" | tr -d '\\r\\n[:space:]')
-          echo "TAURI_SIGNING_PRIVATE_KEY=$CLEAN_KEY" >> $GITHUB_ENV
-          KEY_FILE="${RUNNER_TEMP}/roundstep_updater.key"
-          printf '%s' "$CLEAN_KEY" > "$KEY_FILE"
-          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=$KEY_FILE" >> $GITHUB_ENV
-
       - name: Build and publish Tauri release (macOS)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.PUBLIC_RELEASE_PAT }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PATH }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           ENABLE_CODE_SIGNING: "true"
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -274,22 +263,11 @@ jobs:
           Write-Host "OK: speech_engine sidecar exists"
           Get-ChildItem -Path $binDir | Format-Table Name, Length
 
-      - name: Prepare Tauri signing key
-        shell: bash
-        run: |
-          RAW_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
-          CLEAN_KEY=$(printf '%s' "$RAW_KEY" | tr -d '\\r\\n[:space:]')
-          echo "TAURI_SIGNING_PRIVATE_KEY=$CLEAN_KEY" >> $GITHUB_ENV
-          KEY_FILE="${RUNNER_TEMP}/roundstep_updater.key"
-          printf '%s' "$CLEAN_KEY" > "$KEY_FILE"
-          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=$KEY_FILE" >> $GITHUB_ENV
-
       - name: Build and publish Tauri release (Windows)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.PUBLIC_RELEASE_PAT }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PATH }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           owner: axdityax
