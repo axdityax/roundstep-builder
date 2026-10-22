@@ -133,9 +133,6 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           owner: axdityax
           repo: roundstep-releases
@@ -147,6 +144,21 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target aarch64-apple-darwin
+
+      - name: Asynchronous Apple Notarization
+        shell: bash
+        run: |
+          echo "Submitting DMG to Apple Notary service asynchronously (no hang)..."
+          DMG_PATH=$(find client-desktop-mac/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -n 1)
+          if [ -n "$DMG_PATH" ] && [ -f "$DMG_PATH" ]; then
+            echo "Submitting $DMG_PATH to Apple Notary Service..."
+            xcrun notarytool submit "$DMG_PATH" \
+              --apple-id "${{ secrets.APPLE_ID }}" \
+              --password "${{ secrets.APPLE_PASSWORD }}" \
+              --team-id "${{ secrets.APPLE_TEAM_ID }}" || true
+          else
+            echo "No DMG found to submit."
+          fi
 
   build-windows:
     name: Build Windows (x64)
