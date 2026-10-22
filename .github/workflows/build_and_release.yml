@@ -4,9 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g. 1.0.1)'
+        description: 'Release Version (e.g. 2.1.0)'
         required: true
-        default: '1.0.1'
+        default: '2.1.0'
+      target_platform:
+        description: 'Platform to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - macos
+          - windows
 
 permissions:
   contents: write
@@ -37,6 +46,10 @@ jobs:
             args: ''
             project_path: 'client-desktop-windows'
 
+    if: |
+      github.event.inputs.target_platform == 'all' ||
+      (github.event.inputs.target_platform == 'macos' && matrix.platform == 'macos-latest') ||
+      (github.event.inputs.target_platform == 'windows' && matrix.platform == 'windows-latest')
     runs-on: ${{ matrix.platform }}
 
     steps:
